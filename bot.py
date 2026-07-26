@@ -1,145 +1,138 @@
 import telebot
 from telebot import types
 import requests
+import os
 import time
 import traceback
-import os
 
 BOT_TOKEN = os.getenv("BOT_TOKEN")
 API_TOKEN = os.getenv("API_TOKEN")
-API_URL = f"https://api.alanchand.com/?type=currencies&token={API_TOKEN}"
 
 bot = telebot.TeleBot(BOT_TOKEN, parse_mode="Markdown")
 
-def get_currency_data():
+def get_data(data_type="currencies"):
     try:
-        r = requests.get(API_URL, timeout=15)
+        url = f"https://api.alanchand.com/?type={data_type}&token={API_TOKEN}"
+        r = requests.get(url, timeout=12)
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        print("API Error:", e)
+        print(f"Error fetching {data_type}:", e)
         return None
 
 def format_number(num):
-    return f"{num:,}".replace(",", "٬")
+    try:
+        return f"{int(num):,}".replace(",", "٬")
+    except:
+        return str(num)
 
-def create_main_keyboard():
-    markup = types.ReplyKeyboardMarkup(resize_keyboard=True, row_width=2)
+def main_menu():
+    markup = types.InlineKeyboardMarkup(row_width=2)
     markup.add(
-        types.KeyboardButton("💵 دلار آمریکا"),
-        types.KeyboardButton("💶 یورو"),
-        types.KeyboardButton("💷 پوند"),
-        types.KeyboardButton("🇦🇪 درهم"),
-        types.KeyboardButton("🇹🇷 لیر"),
-        types.KeyboardButton("🔄 همه ارزها"),
-        types.KeyboardButton("ℹ️ راهنما")
+        types.InlineKeyboardButton("💵 ارزها", callback_data="currencies"),
+        types.InlineKeyboardButton("🥇 طلا و سکه", callback_data="golds"),
+        types.InlineKeyboardButton("₿ ارز دیجیتال", callback_data="crypto"),
+        types.InlineKeyboardButton("🔄 بروزرسانی", callback_data="refresh"),
+        types.InlineKeyboardButton("🌐 منبع قیمت‌ها", url="https://alanchand.com")
     )
+    return markup
+
+def back_button():
+    markup = types.InlineKeyboardMarkup()
+    markup.add(types.InlineKeyboardButton("🔙 بازگشت به منو", callback_data="home"))
     return markup
 
 @bot.message_handler(commands=['start', 'help'])
 def start(message):
-    text = """🤖 *ربات قیمت لحظه‌ای ارز*
+    text = """
+🤖 *ربات حرفه‌ای قیمت لحظه‌ای*
 
-از دکمه‌های پایین استفاده کن."""
-    bot.send_message(message.chat.id, text, reply_markup=create_main_keyboard())
+قیمت‌های بازار آزاد ارز، طلا و ارز دیجیتال
 
-@bot.message_handler(func=lambda m: m.text in ["💵 دلار آمریکا", "/dollar"])
-def dollar(message):
-    data = get_currency_data()
-    if not data or "usd" not in data:
-        bot.reply_to(message, "❌ خطا در دریافت قیمت.")
+از دکمه‌های زیر استفاده کنید:
+"""
+    bot.send_message(message.chat.id, text, reply_markup=main_menu())
+
+@bot.callback_query_handler(func=lambda call: True)
+def callback_handler(call):
+    chat_id = call.message.chat.id
+    message_id = call.message.message_id
+
+    if call.data == "home" or call.data == "refresh":
+        text = """
+🤖 *ربات حرفه‌ای قیمت لحظه‌ای*
+
+قیمت‌های بازار آزاد ارز، طلا و ارز دیجیتال
+"""
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=main_menu())
+        bot.answer_callback_query(call.id)
         return
-    usd = data["usd"]
-    text = f"""💵 *دلار آمریکا*
 
-🟢 فروش: `{format_number(usd['sell'])}` تومان
-🔴 خرید: `{format_number(usd['buy'])}` تومان
+    if call.data == "currencies":
+        data = get_data("currencies")
+        if not data:
+            bot.answer_callback_query(call.id, "خطا در دریافت اطلاعات", show_alert=True)
+            return
 
-📈 سقف: `{format_number(usd['high'])}`
-📉 کف: `{format_number(usd['low'])}`
-📊 تغییر: `{usd['dayChange']}%`
+        text = "💵 *قیمت ارزهای مهم*\n\n"
+        important = ["usd", "eur", "gbp", "aed", "try", "cad", "aud", "cny"]
+        for key in important:
+            if key in data:
+                item = data[key]
+                text += f"*{item['name']}*\n"
+                text += f"🟢 فروش: `{format_number(item['sell'])}`\n"
+                text += f"🔴 خرید: `{format_number(item['buy'])}`\n"
+                text += f"📊 تغییر: `{item.get('dayChange', '-')}%`\n\n"
 
-⏰ `{usd['updated_at']}`"""
-    bot.send_message(message.chat.id, text)
+        text += f"⏰ `{data['usd']['updated_at']}`"
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=back_button())
+        bot.answer_callback_query(call.id)
 
-@bot.message_handler(func=lambda m: m.text in ["💶 یورو", "/euro"])
-def euro(message):
-    data = get_currency_data()
-    if not data or "eur" not in data:
-        bot.reply_to(message, "❌ خطا در دریافت قیمت.")
-        return
-    eur = data["eur"]
-    text = f"""💶 *یورو*
+    elif call.data == "golds":
+        data = get_data("golds")
+        if not data:
+            bot.answer_callback_query(call.id, "خطا در دریافت اطلاعات", show_alert=True)
+            return
 
-🟢 فروش: `{format_number(eur['sell'])}` تومان
-🔴 خرید: `{format_number(eur['buy'])}` تومان
-📊 تغییر: `{eur['dayChange']}%`
-⏰ `{eur['updated_at']}`"""
-    bot.send_message(message.chat.id, text)
+        text = "🥇 *قیمت طلا و سکه*\n\n"
+        # نمایش چند مورد مهم
+        count = 0
+        for key, item in data.items():
+            if count >= 8:
+                break
+            name = item.get('name', key)
+            sell = item.get('sell') or item.get('price')
+            if sell:
+                text += f"*{name}*: `{format_number(sell)}` تومان\n"
+                count += 1
 
-@bot.message_handler(func=lambda m: m.text in ["💷 پوند"])
-def gbp(message):
-    data = get_currency_data()
-    if not data or "gbp" not in data:
-        bot.reply_to(message, "❌ خطا.")
-        return
-    g = data["gbp"]
-    text = f"""💷 *پوند*
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=back_button())
+        bot.answer_callback_query(call.id)
 
-🟢 فروش: `{format_number(g['sell'])}` تومان
-🔴 خرید: `{format_number(g['buy'])}` تومان"""
-    bot.send_message(message.chat.id, text)
+    elif call.data == "crypto":
+        data = get_data("crypto")
+        if not data:
+            bot.answer_callback_query(call.id, "خطا در دریافت اطلاعات", show_alert=True)
+            return
 
-@bot.message_handler(func=lambda m: m.text in ["🇦🇪 درهم"])
-def aed(message):
-    data = get_currency_data()
-    if not data or "aed" not in data:
-        bot.reply_to(message, "❌ خطا.")
-        return
-    a = data["aed"]
-    text = f"""🇦🇪 *درهم*
+        text = "₿ *قیمت ارزهای دیجیتال*\n\n"
+        important_crypto = ["btc", "eth", "usdt", "bnb", "xrp", "sol", "doge"]
+        for key in important_crypto:
+            if key in data:
+                item = data[key]
+                name = item.get('name', key.upper())
+                price = item.get('sell') or item.get('price') or item.get('usd')
+                if price:
+                    text += f"*{name}*: `{format_number(price)}`\n"
 
-🟢 فروش: `{format_number(a['sell'])}` تومان
-🔴 خرید: `{format_number(a['buy'])}` تومان"""
-    bot.send_message(message.chat.id, text)
+        bot.edit_message_text(text, chat_id, message_id, reply_markup=back_button())
+        bot.answer_callback_query(call.id)
 
-@bot.message_handler(func=lambda m: m.text in ["🇹🇷 لیر"])
-def try_currency(message):
-    data = get_currency_data()
-    if not data or "try" not in data:
-        bot.reply_to(message, "❌ خطا.")
-        return
-    t = data["try"]
-    text = f"""🇹🇷 *لیر ترکیه*
-
-🟢 فروش: `{format_number(t['sell'])}` تومان
-🔴 خرید: `{format_number(t['buy'])}` تومان"""
-    bot.send_message(message.chat.id, text)
-
-@bot.message_handler(func=lambda m: m.text in ["🔄 همه ارزها", "/all"])
-def all_currencies(message):
-    data = get_currency_data()
-    if not data:
-        bot.reply_to(message, "❌ خطا در دریافت اطلاعات.")
-        return
-    keys = ["usd", "eur", "gbp", "aed", "try", "cad", "aud"]
-    text = "📊 *قیمت‌های لحظه‌ای*\n\n"
-    for k in keys:
-        if k in data:
-            item = data[k]
-            text += f"• *{item['name']}*: `{format_number(item['sell'])}` / `{format_number(item['buy'])}`\n"
-    text += f"\n⏰ `{data['usd']['updated_at']}`"
-    bot.send_message(message.chat.id, text)
-
-@bot.message_handler(func=lambda m: m.text == "ℹ️ راهنما")
-def help_msg(message):
-    bot.send_message(message.chat.id, "ربات روی سرور رایگان اجرا می‌شود.")
-
-print("ربات شروع به کار کرد...")
+print("ربات پیشرفته شروع به کار کرد...")
 while True:
     try:
         bot.infinity_polling(timeout=25, long_polling_timeout=25)
     except Exception as e:
-        print("خطا:", e)
+        print("Error:", e)
         traceback.print_exc()
         time.sleep(10)
